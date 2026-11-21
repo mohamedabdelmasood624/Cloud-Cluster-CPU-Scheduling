@@ -1,3 +1,3 @@
 # Cloud-Cluster-CPU-Scheduling
 
-Assignment 2: Cloud-Cluster CPU Scheduling Simulation
+Cloud-Cluster CPU Scheduling Simulation (Preemptive SJF & Adaptive Container Scheduler).
