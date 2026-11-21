@@ -1,0 +1,18 @@
+Expected Output for Test Case 1 (ACS: Q=3, CS=0)
+Reference from Assignment Specification Page 2-3:
+
+Timeline Execution:
+Time 0-2 : P1 runs in Tier 1 (remaining drops from 4 to 1)
+Time 3-5 : P2 runs in Tier 1 (remaining drops from 7 to 4; P1 demoted to Tier 2 with remaining=1, priority=2)
+Time 6-7 : P3 runs in Tier 1 (remaining drops from 2 to 0, finishes at T=8; P2 demoted to Tier 2 with remaining=4, priority=3)
+Time 8   : P1 runs in Tier 2 (remaining drops from 1 to 0, finishes at T=9)
+Time 9-12: P2 runs in Tier 2 (remaining drops from 4 to 0, finishes at T=13)
+
+Summary Table:
+Process   Arrival Time   Finish Time   Turnaround Time   Waiting Time
+P1        0              9             9                 5
+P2        1              13            12                5
+P3        3              8             5                 3
+
+Average Turnaround Time: (9 + 12 + 5)/3 = 8.67 time units
+Average Waiting Time:    (5 + 5 + 3)/3  = 4.33 time units
