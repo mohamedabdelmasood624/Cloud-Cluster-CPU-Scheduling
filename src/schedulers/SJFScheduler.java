@@ -61,10 +61,14 @@ public class SJFScheduler implements Scheduler {
                 }
             }
 
+            //Hassib: hena dlw2ti i will add setting lastExecuted = null, 3a4an dlw2ti boso
+            //Hassib: dlw2ti lw P1 e4t8lt l7ad T = 3, w P2 htwslna 3ala T = 5, fa lama T = 5 tege, w nla2i en lastExecuted == P1, fa keda hn7ot context switch me4 me7tageno asasen ma7na b2alna T = 4 idle, no7ot context switch kaman? 
+            // fa simply el fix is to add lastExecuted = null lama nkon fi idle state
             // CPU idle step
             if (readyPool.isEmpty()) {
                 timeStepLogs.add(new TimeStepLog(currentTime, null, false, null, new ArrayList<>(), new ArrayList<>(), "CPU Idle"));
                 currentTime++;
+                lastExecuted = null;
                 continue;
             }
 
@@ -89,21 +93,27 @@ public class SJFScheduler implements Scheduler {
                 }
 
                 for (int cs = 0; cs < contextSwitchTime; cs++) {
-                    List<String> readySnapshot = getReadySnapshot(simulationList, currentTime, null);
+                    List<String> readySnapshot = getReadySnapshot(simulationList, currentTime, null, srtfComparator);
                     timeStepLogs.add(new TimeStepLog(currentTime, null, true, csMessage, readySnapshot, new ArrayList<>(), "Context Switch"));
                     currentTime++;
                 }
 
-                readyPool.clear();
-                for (Process p : simulationList) {
-                    if (p.getArrivalTime() <= currentTime && p.getRemainingTime() > 0) {
-                        readyPool.add(p);
-                    }
-                }
-                readyPool.sort(srtfComparator);
-                if (!readyPool.isEmpty()) {
-                    nextToRun = readyPool.get(0);
-                }
+                // Hassib: dol lazem yet4alo 3a4an 8alat w feeh case beybozo feeha
+                // Hassib: la2en fo2 already e7na 3mlna context switch w el mafrood y7sal howa awel ma el dispatcher y3ml context switch w yebos 3ala el nexttorun, 
+                // Hassib: w beyload el PCB w kol elkalam el7lw da, minf34 agi 3ala tol w a4of 7ad tani w atrod elnexttorun w a7ot makano 7ad gded.
+                // Hassib: summary:elcontext switch men ela5er e4t8l 3ala instance men nexttorun mo3ayan w gowa el function kanet bt8ayar elnexttorun.
+                // Hassib: law 7ad mo3tared, please speak up.
+                /* what's getting removed in my opinion ta7t aho */
+                // readyPool.clear();
+                // for (Process p : simulationList) {
+                //     if (p.getArrivalTime() <= currentTime && p.getRemainingTime() > 0) {
+                //         readyPool.add(p);
+                //     }
+                // }
+                // readyPool.sort(srtfComparator);
+                // if (!readyPool.isEmpty()) {
+                //     nextToRun = readyPool.get(0);
+                // }
             }
 
             // Execute process for 1 time unit
@@ -113,7 +123,7 @@ public class SJFScheduler implements Scheduler {
                 currentRunning.setStartTime(currentTime);
             }
 
-            List<String> readySnapshot = getReadySnapshot(simulationList, currentTime, currentRunning);
+            List<String> readySnapshot = getReadySnapshot(simulationList, currentTime, currentRunning, srtfComparator);
             timeStepLogs.add(new TimeStepLog(currentTime, currentRunning.getId(), false, null, readySnapshot, new ArrayList<>(), "Running " + currentRunning.getId()));
 
             currentRunning.setRemainingTime(currentRunning.getRemainingTime() - 1);
@@ -162,16 +172,29 @@ public class SJFScheduler implements Scheduler {
         );
     }
 
+    //Hassib: hena elmafrood nbuild tier1Snapshot list to display tl processes waiting fi el ready queue
+    // bas eli bi7sl en getReadySnapshot betloop 3ala simulationList eli howa me4 sorted 3ala SRTF priority order
+    // fa elsnapshot will simply display unsorted processes w eli elmafrood y7sl eno ydisplay SRTF priority order, fa lw 7atena el comparator m3ana ka paremeter
+    // el trrace log w el GUI will display sorted data
+    // elfix heya eno no7to el comparator ka parameter m3ana w simply sort them 
     // Ready queue snapshot helper
-    private List<String> getReadySnapshot(List<Process> processes, int currentTime, Process running) {
-        List<String> snapshot = new ArrayList<>();
+    private List<String> getReadySnapshot(List<Process> processes, int currentTime, Process running, Comparator<Process> comparator) {
+        // List<String> snapshot = new ArrayList<>(); // we simply use it ba3d ma 3amalna sort lel processes sa7
+        List<Process> ready = new ArrayList<>();
         for (Process p : processes) {
             if (p.getArrivalTime() <= currentTime && p.getRemainingTime() > 0) {
                 if (running == null || !p.getId().equals(running.getId())) {
-                    snapshot.add(p.getId() + " (remaining: " + p.getRemainingTime() + ")");
+                    // snapshot.add(p.getId() + " (remaining: " + p.getRemainingTime() + ")");
+                    ready.add(p);
                 }
             }
         }
+        ready.sort(comparator);
+        List<String> snapshot = new ArrayList<>();
+        for (Process p: ready){
+            snapshot.add(p.getId() + " (remaining: " + p.getRemainingTime() + ")");
+        }
+
         return snapshot;
     }
 }
