@@ -15,6 +15,8 @@ public class AdaptiveContainerScheduler implements Scheduler {
     private Queue<Process> tier1Queue = new ArrayDeque<>();
     private List<Process> tier2Queue = new ArrayList<>();
     private Process currentlyRunningBatchProcess = null;
+    private Process currentlyRunningInteractiveProcess = null;
+    private int tier1QuantumUsed = 0;
 
     public AdaptiveContainerScheduler() {
         this.agingStrategy = new ACSAgingStrategy();
@@ -35,10 +37,42 @@ public class AdaptiveContainerScheduler implements Scheduler {
     }
 
     public void handleTier1Arrival(Process process) {
+
+        if (process == null) return;
+        process.setCurrentTier(Process.Tier.TIER_1_RR);
+        tier1Queue.add(process);
+    }
+
+    public Process selectTier1Process() {
+        if (tier1Queue.isEmpty()) return null;
+        currentlyRunningInteractiveProcess = tier1Queue.poll();
+        tier1QuantumUsed = 0;
+        return currentlyRunningInteractiveProcess;
     }
 
     public boolean executeTier1Step(Process process, int quantum) {
-        return false;
+if (currentlyRunningInteractiveProcess == null) return false;
+
+        currentlyRunningInteractiveProcess.setRemainingTime(currentlyRunningInteractiveProcess.getRemainingTime() - 1);
+        tier1QuantumUsed++;
+
+        if (currentlyRunningInteractiveProcess.getRemainingTime() == 0 || tier1QuantumUsed >= quantum) {
+            currentlyRunningInteractiveProcess = null;
+            tier1QuantumUsed = 0;
+            return true;
+        } else {
+            return false;
+        }
+    
+    }
+
+     public List<String> getTier1Snapshot() {
+        List<String> snapshot = new ArrayList<>();
+        for (Process p : tier1Queue) {
+            snapshot.add(p.getId() + " (remaining: " + p.getRemainingTime()
+                    + ", Priority: " + p.getEffectivePriority() + ")");
+        }
+        return snapshot;
     }
 
     public void demoteToTier2(Process process, int currentTime) {
