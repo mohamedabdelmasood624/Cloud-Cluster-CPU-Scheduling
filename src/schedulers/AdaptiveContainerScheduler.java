@@ -3,6 +3,7 @@ package schedulers;
 import model.Process;
 import model.Scheduler;
 import model.SimulationResult;
+import model.Process.Tier;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -10,9 +11,7 @@ import java.util.List;
 import java.util.Queue;
 
 public class AdaptiveContainerScheduler implements Scheduler {
-
     private final ACSAgingStrategy agingStrategy;
-
     private Queue<Process> tier1Queue = new ArrayDeque<>();
     private List<Process> tier2Queue = new ArrayList<>();
     private Process currentlyRunningBatchProcess = null;
@@ -43,14 +42,28 @@ public class AdaptiveContainerScheduler implements Scheduler {
     }
 
     public void demoteToTier2(Process process, int currentTime) {
+        if(process == null) return;
+        process.setCurrentTier(Tier.TIER_2_PRIORITY);
+        process.setTier2WaitStartTime(currentTime);
+        tier2Queue.add(process);
     }
 
-    public Process selectTier2Process() {
-        return null;
+    public Process selectTier2Process(int currentTime, int agingInterval) {
+        if(tier2Queue.isEmpty()) return null;
+        agingStrategy.applyAging(tier2Queue, currentTime, agingInterval);
+        currentlyRunningBatchProcess = tier2Queue.remove(0);
+        return currentlyRunningBatchProcess;
     }
 
     public boolean executeTier2Step() {
-        return false;
+        if(currentlyRunningBatchProcess == null) return false;
+        currentlyRunningBatchProcess.setRemainingTime(currentlyRunningBatchProcess.getRemainingTime()-1);
+        if(currentlyRunningBatchProcess.getRemainingTime() == 0){
+            currentlyRunningBatchProcess = null;
+            return true;
+        }else{
+            return false;
+        }
     }
 
     public ACSAgingStrategy getAgingStrategy() {
