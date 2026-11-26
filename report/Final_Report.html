@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Assignment 2: Cloud-Cluster CPU Scheduling — Final Report</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+            background: #f8fafc;
+            color: #0f172a;
+            line-height: 1.6;
+            padding: 32px 20px;
+        }
+        .container {
+            max-width: 980px;
+            margin: 0 auto;
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 14px;
+            padding: 40px 44px;
+            box-shadow: 0 4px 20px rgba(15, 23, 42, 0.06);
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 20px;
+            margin-bottom: 28px;
+        }
+        .meta { color: #64748b; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; }
+        h1 { font-size: 26px; color: #0f172a; margin-top: 6px; }
+        .subtitle { color: #475569; font-size: 14px; margin-top: 4px; }
+        .print-btn {
+            background: #2563eb;
+            color: #ffffff;
+            border: none;
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .print-btn:hover { background: #1d4ed8; }
+        h2 {
+            font-size: 18px;
+            color: #1e3a8a;
+            margin: 30px 0 12px;
+            padding-left: 10px;
+            border-left: 4px solid #2563eb;
+        }
+        p { color: #334155; font-size: 14.5px; margin-bottom: 12px; }
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px;
+            margin: 20px 0 26px;
+        }
+        .kpi-card {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 14px 16px;
+        }
+        .kpi-label { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; }
+        .kpi-val { font-size: 20px; font-weight: 700; color: #0f172a; margin: 4px 0 2px; }
+        .kpi-sub { font-size: 12px; color: #64748b; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 14px 0 22px;
+            font-size: 13.5px;
+        }
+        th {
+            background: #0f172a;
+            color: #ffffff;
+            padding: 10px 12px;
+            text-align: center;
+            font-weight: 600;
+        }
+        td {
+            padding: 10px 12px;
+            text-align: center;
+            border-bottom: 1px solid #e2e8f0;
+            color: #334155;
+        }
+        tr:nth-child(even) td { background: #f8fafc; }
+        td:first-child { text-align: left; font-weight: 600; color: #0f172a; }
+        .chart-box {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 16px;
+            margin: 16px 0 22px;
+            text-align: center;
+        }
+        .chart-box img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 6px;
+        }
+        .chart-caption { font-size: 13px; color: #475569; margin-top: 10px; }
+        .cards-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin: 14px 0 20px;
+        }
+        .info-card {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 18px 20px;
+        }
+        .info-card h3 { font-size: 15px; color: #0f172a; margin-bottom: 8px; }
+        ul { padding-left: 18px; color: #334155; font-size: 14px; }
+        li { margin-bottom: 7px; }
+        .highlight-box {
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 10px;
+            padding: 16px 20px;
+            margin-top: 16px;
+        }
+        .highlight-box strong { color: #1e40af; }
+        footer {
+            margin-top: 32px;
+            padding-top: 16px;
+            border-top: 1px solid #e2e8f0;
+            text-align: center;
+            font-size: 12px;
+            color: #94a3b8;
+        }
+        @media (max-width: 720px) {
+            .kpi-grid, .cards-2 { grid-template-columns: 1fr; }
+            .container { padding: 24px 20px; }
+        }
+        @media print {
+            body { background: #ffffff; padding: 0; }
+            .container { border: none; box-shadow: none; padding: 12px; max-width: 100%; }
+            .print-btn { display: none; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <div>
+            <div class="meta">Faculty of Computers and Artificial Intelligence — Cairo University • CS241: Operating Systems 1</div>
+            <h1>Assignment 2: Cloud-Cluster CPU Scheduling</h1>
+            <div class="subtitle">Performance Evaluation of Preemptive SJF &amp; Adaptive Container Scheduler (ACS)</div>
+        </div>
+        <button class="print-btn" onclick="window.print()">Print / Save PDF</button>
+    </header>
+
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <div class="kpi-label">Test Case 1 (ACS)</div>
+            <div class="kpi-val">8.67 / 4.33</div>
+            <div class="kpi-sub">ATAT / AWT (Exact PDF Match)</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Test Case 2 (ACS)</div>
+            <div class="kpi-val">16.00 / 11.00</div>
+            <div class="kpi-sub">ATAT / AWT (CS=1, Aging=4)</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Batch Response Gain</div>
+            <div class="kpi-val">3.6× Faster</div>
+            <div class="kpi-sub">TC4 ART: ACS 2.00 vs SJF 7.33</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">Starvation Risk</div>
+            <div class="kpi-val">0%</div>
+            <div class="kpi-sub">Resolved via Tier 3 Aging</div>
+        </div>
+    </div>
+
+    <h2>1. Verified Test Case Results (ACS vs. Preemptive SJF)</h2>
+    <p>Both schedulers were evaluated across four workloads covering baseline execution, context switching with aging, short interactive jobs, and heavy CPU-bound batch jobs.</p>
+    <table>
+        <thead>
+            <tr>
+                <th>Test Case</th>
+                <th>Parameters</th>
+                <th>ACS AWT</th>
+                <th>ACS ATAT</th>
+                <th>ACS ART</th>
+                <th>SJF AWT</th>
+                <th>SJF ATAT</th>
+                <th>SJF ART</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Test Case 1 (Baseline)</td>
+                <td>Q=3, CS=0</td>
+                <td>4.33</td>
+                <td>8.67</td>
+                <td>1.67</td>
+                <td>2.00</td>
+                <td>6.33</td>
+                <td>2.00</td>
+            </tr>
+            <tr>
+                <td>Test Case 2 (CS + Aging)</td>
+                <td>Q=3, CS=1, Aging=4</td>
+                <td>11.00</td>
+                <td>16.00</td>
+                <td>2.33</td>
+                <td>4.00</td>
+                <td>9.00</td>
+                <td>4.00</td>
+            </tr>
+            <tr>
+                <td>Test Case 3 (Interactive)</td>
+                <td>Q=3, CS=1</td>
+                <td>2.33</td>
+                <td>4.33</td>
+                <td>2.33</td>
+                <td>1.67</td>
+                <td>3.67</td>
+                <td>1.67</td>
+            </tr>
+            <tr>
+                <td>Test Case 4 (Heavy Batch)</td>
+                <td>Q=2, CS=1</td>
+                <td>13.67</td>
+                <td>21.67</td>
+                <td>2.00</td>
+                <td>7.33</td>
+                <td>15.33</td>
+                <td>7.33</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h2>2. Effect of Context Switching (CS) &amp; Time Quantum (Q)</h2>
+    <div class="chart-box">
+        <img src="cs_vs_performance.png" alt="Effect of Context Switching on AWT and ATAT">
+        <div class="chart-caption"><strong>Figure 1:</strong> Sweeping CS ∈ {0, 1, 2, 3} across all four test cases. Increasing CS linearly degrades AWT and ATAT and drops CPU utilization (from 100% at CS=0 down to 50% at CS=3 in TC2).</div>
+    </div>
+
+    <div class="chart-box">
+        <img src="q_vs_performance.png" alt="Effect of Time Quantum on ACS Performance">
+        <div class="chart-caption"><strong>Figure 2:</strong> Sweeping Q ∈ {1, 2, 3, 5, 8, 10}. Small Q minimizes Response Time (0.67 in TC1, 1.00 in TC4) but adds demotion overhead; large Q raises CPU utilization (92.3% in TC4) but degrades Response Time due to the Convoy Effect.</div>
+    </div>
+
+    <h2>3. Trade-offs of ACS Tier 2 Demotion (CPU Utilization vs. Response Time)</h2>
+    <div class="cards-2">
+        <div class="info-card">
+            <h3>Impact on CPU Utilization</h3>
+            <ul>
+                <li>Pure Round Robin repeatedly interrupts CPU-heavy batch jobs every <strong>Q</strong> units, wasting cycles on context switches.</li>
+                <li>Demoting long jobs to a <strong>Non-Preemptive Priority queue (Tier 2)</strong> allows them to finish uninterrupted once scheduled.</li>
+                <li>This significantly reduces total context switches and maximizes effective CPU throughput and cache locality.</li>
+            </ul>
+        </div>
+        <div class="info-card">
+            <h3>Impact on Response Time</h3>
+            <ul>
+                <li>Interactive jobs arriving when Tier 2 is idle immediately run in Tier 1, achieving fast response times (e.g., TC4: <strong>2.00</strong> vs. SJF <strong>7.33</strong>).</li>
+                <li><strong>Core Trade-off:</strong> Because Tier 2 is non-preemptive, an interactive job arriving <em>during</em> an active Tier 2 batch run must wait until it finishes.</li>
+                <li>ACS trades occasional tail-latency spikes for higher overall cluster CPU utilization.</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="highlight-box">
+        <strong>Starvation Prevention (Tier 3 Aging):</strong>
+        Without aging, low-priority batch jobs in Tier 2 could starve indefinitely. ACS dynamically boosts waiting Tier 2 jobs using
+        <code>Effective Priority = max(1, Initial Priority − ⌊Wait Time / Aging Interval⌋)</code>.
+        In Test Case 2, <strong>P1</strong> (initial priority 4) is promoted to priority 2 at <strong>T=11</strong> and priority 1 at <strong>T=15</strong>, guaranteeing bounded waiting times for every process.
+    </div>
+
+    <footer>
+        Cloud-Cluster CPU Scheduling Simulator • Generated from Live Java Simulation Benchmarks
+    </footer>
+</div>
+</body>
+</html>
