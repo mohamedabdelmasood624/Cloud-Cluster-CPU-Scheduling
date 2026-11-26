@@ -1,5 +1,6 @@
 package schedulers;
 
+import analytics.MetricsCalculator;
 import model.Process;
 import model.Scheduler;
 import model.SimulationResult;
@@ -8,6 +9,7 @@ import model.TimeStepLog;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Queue;
 import java.util.function.Consumer;
@@ -16,6 +18,12 @@ import analytics.MetricsCalculator;
 
 public class AdaptiveContainerScheduler implements Scheduler {
     private final ACSAgingStrategy agingStrategy;
+    private int agingInterval;
+
+    private Queue<Process> tier1Queue = new ArrayDeque<>();
+    private List<Process> tier2Queue = new ArrayList<>();
+    private Process currentlyRunningBatchProcess = null;
+    private int currentQuantumUsed = 0;
     private Queue<Process> tier1Queue = new ArrayDeque<>();
     private List<Process> tier2Queue = new ArrayList<>();
     private Process currentlyRunningBatchProcess = null;
@@ -28,11 +36,16 @@ public class AdaptiveContainerScheduler implements Scheduler {
     }
 
     public AdaptiveContainerScheduler() {
-        this.agingStrategy = new ACSAgingStrategy();
+        this(new ACSAgingStrategy(), 4);
     }
 
     public AdaptiveContainerScheduler(ACSAgingStrategy agingStrategy) {
+        this(agingStrategy, 4);
+    }
+
+    public AdaptiveContainerScheduler(ACSAgingStrategy agingStrategy, int agingInterval) {
         this.agingStrategy = agingStrategy;
+        this.agingInterval = agingInterval;
     }
 
     @Override
@@ -40,215 +53,287 @@ public class AdaptiveContainerScheduler implements Scheduler {
         return "Adaptive Container Scheduler (ACS)";
     }
 
+    public void setAgingInterval(int agingInterval) {
+        this.agingInterval = agingInterval;
+    }
+
+    public int getAgingInterval() {
+        return agingInterval;
+    }
+
     @Override
     public SimulationResult schedule(List<Process> processes, int quantum, int contextSwitchTime) {
-        tier1Queue.clear();
-        tier2Queue.clear();
+        tier1Queue = new ArrayDeque<>();
+        tier2Queue = new ArrayList<>();
         currentlyRunningBatchProcess = null;
+        currentQuantumUsed = 0;
 
-        List<Process> simulist = new ArrayList<>();
-        if (processes != null) {
-            for (Process p : processes) {
-                simulist.add(new Process(p.getId(), p.getArrivalTime(),
-                        p.getBurstTime(), p.getInitialPriority()));
-            }
+        List<Process> allProcesses = new ArrayList<>();
+        for (Process p : processes) {
+            allProcesses.add(new Process(p.getId(), p.getArrivalTime(), p.getBurstTime(), p.getInitialPriority()));
         }
 
-        List<TimeStepLog> executionLog = new ArrayList<>();
-        int currentTime = 0, completed = 0, busyTime = 0;
+        List<TimeStepLog> logs = new ArrayList<>();
+        int totalProcesses = allProcesses.size();
+        boolean[] arrived = new boolean[totalProcesses];
 
-        Process lst = null, currentRR = null;
-        int currentquantums = 0;
+        int currentTime = 0;
+        int completed = 0;
+        int busyTime = 0;
 
-        Consumer<Integer> handleArrivals = (time) -> {
-            for (Process p : simulist) {
-                if (p.getArrivalTime() == time)
+        Process currentTier1Process = null;
+        Process lastExecuted = null;
+        Process pendingNext = null;
+        boolean pendingIsTier2 = false;
+        int csRemaining = 0;
+        String pendingCsMsg = "";
+        String pendingAgingNotes = "";
+
+        while (completed < totalProcesses) {
+            for (int i = 0; i < totalProcesses; i++) {
+                Process p = allProcesses.get(i);
+                if (!arrived[i] && p.getArrivalTime() <= currentTime) {
+                    arrived[i] = true;
                     handleTier1Arrival(p);
-
-            }
-        };
-
-        while (completed < simulist.size()) {
-
-            // newcomers
-            handleArrivals.accept(currentTime);
-
-            Process nextProcess = null;
-            String stepNotes = null;
-
-            if (currentlyRunningBatchProcess != null) {
-                nextProcess = currentlyRunningBatchProcess;
-            } else if (currentRR != null) {
-                nextProcess = currentRR;
-            } else if (!tier1Queue.isEmpty()) {
-                currentRR = tier1Queue.poll();
-                currentquantums = 0;
-                nextProcess = currentRR;
-            } else if (!tier2Queue.isEmpty()) {
-                List<String> notes = agingStrategy.buildAgingNotes(tier2Queue, currentTime, agingInterval);
-                if (!notes.isEmpty()) {
-                    stepNotes = String.join("\n", notes);
                 }
-                nextProcess = selectTier2Process(currentTime, agingInterval);
             }
 
-            if (nextProcess == null) {
-                executionLog.add(new TimeStepLog(
+            if (csRemaining > 0) {
+                List<String> t1Snap = snapshotTier1(pendingNext != null && !pendingIsTier2 ? pendingNext : null);
+                List<String> t2Snap = snapshotTier2(pendingNext != null && pendingIsTier2 ? pendingNext : null);
+                logs.add(new TimeStepLog(
                         currentTime,
-                        "IDLE",
-                        false,
                         null,
-                        getTier1Snapshot(),
-                        getTier2Snapshot(),
-                        null));
-                lst = null;
+                        true,
+                        pendingCsMsg,
+                        t1Snap,
+                        t2Snap,
+                        pendingAgingNotes
+                ));
+                pendingAgingNotes = "";
+                csRemaining--;
                 currentTime++;
+                if (csRemaining == 0) {
+                    if (pendingIsTier2) {
+                        currentlyRunningBatchProcess = pendingNext;
+                    } else {
+                        currentTier1Process = pendingNext;
+                        currentQuantumUsed = 0;
+                    }
+                    pendingNext = null;
+                    pendingCsMsg = "";
+                }
                 continue;
             }
 
-            if (lst != null && lst != nextProcess && contextSwitchTime > 0) {
-                String csMsg = "Context Switch (" + lst.getId() + " -> " + nextProcess.getId() + ")";
-                for (int cs = 0; cs < contextSwitchTime; cs++) {
-                    executionLog.add(new TimeStepLog(
-                            currentTime,
-                            "CS",
-                            true,
-                            csMsg,
-                            getTier1Snapshot(),
-                            getTier2Snapshot(),
-                            null));
-                    currentTime++;
-                    handleArrivals.accept(currentTime);
-                }
-            }
-
-            if (nextProcess.getStartTime() == -1) {
-                nextProcess.setStartTime(currentTime);
-            }
-
-            executionLog.add(new TimeStepLog(
-                    currentTime,
-                    nextProcess.getId(),
-                    false,
-                    null,
-                    getTier1Snapshot(),
-                    getTier2Snapshot(),
-                    stepNotes));
-
-            currentTime++;
-            busyTime++;
-            lst = nextProcess;
-
-            if (currentlyRunningBatchProcess != null) {
-                boolean done = executeTier2Step();
-                if (done) {
-                    nextProcess.setFinishTime(currentTime);
-                    completed++;
-                }
-            } else {
-                boolean turnEnded = executeTier1Step(nextProcess, quantum);
-                if (turnEnded) {
-                    if (nextProcess.getRemainingTime() == 0) {
-                        nextProcess.setFinishTime(currentTime);
-                        completed++;
+            if (currentlyRunningBatchProcess == null && currentTier1Process == null) {
+                if (!tier1Queue.isEmpty()) {
+                    Process next = tier1Queue.poll();
+                    if (lastExecuted != null && !lastExecuted.getId().equals(next.getId()) && contextSwitchTime > 0) {
+                        pendingNext = next;
+                        pendingIsTier2 = false;
+                        csRemaining = contextSwitchTime;
+                        pendingCsMsg = "Context switch saves " + lastExecuted.getId() + " and loads " + next.getId();
+                        continue;
                     } else {
-                        demoteToTier2(nextProcess, currentTime);
+                        currentTier1Process = next;
+                        currentQuantumUsed = 0;
+                    }
+                } else if (!tier2Queue.isEmpty()) {
+                    agingStrategy.applyAging(tier2Queue, currentTime, agingInterval);
+                    String agingNote = agingStrategy.describeAging(tier2Queue, currentTime, agingInterval);
+                    Process next = selectTier2Process();
+                    if (lastExecuted != null && !lastExecuted.getId().equals(next.getId()) && contextSwitchTime > 0) {
+                        pendingNext = next;
+                        pendingIsTier2 = true;
+                        currentlyRunningBatchProcess = null;
+                        csRemaining = contextSwitchTime;
+                        pendingCsMsg = "Context switch loads " + next.getId();
+                        pendingAgingNotes = agingNote;
+                        continue;
+                    } else {
+                        currentlyRunningBatchProcess = next;
+                        pendingAgingNotes = agingNote;
                     }
                 }
             }
 
-            for (Process p : simulist) {
-                MetricsCalculator.computeProcessMetrics(p);
+            if (currentlyRunningBatchProcess != null) {
+                if (currentlyRunningBatchProcess.getStartTime() == -1) {
+                    currentlyRunningBatchProcess.setStartTime(currentTime);
+                }
+
+                logs.add(new TimeStepLog(
+                        currentTime,
+                        currentlyRunningBatchProcess.getId(),
+                        false,
+                        "",
+                        snapshotTier1(null),
+                        snapshotTier2(currentlyRunningBatchProcess),
+                        pendingAgingNotes
+                ));
+                pendingAgingNotes = "";
+
+                Process activeBatch = currentlyRunningBatchProcess;
+                boolean finished = executeTier2Step();
+                busyTime++;
+                currentTime++;
+
+                if (finished) {
+                    activeBatch.setFinishTime(currentTime);
+                    MetricsCalculator.computeProcessMetrics(activeBatch);
+                    lastExecuted = activeBatch;
+                    completed++;
+                }
+            } else if (currentTier1Process != null) {
+                if (currentTier1Process.getStartTime() == -1) {
+                    currentTier1Process.setStartTime(currentTime);
+                }
+
+                logs.add(new TimeStepLog(
+                        currentTime,
+                        currentTier1Process.getId(),
+                        false,
+                        "",
+                        snapshotTier1(currentTier1Process),
+                        snapshotTier2(null),
+                        ""
+                ));
+
+                boolean shouldDemote = executeTier1Step(currentTier1Process, quantum);
+                busyTime++;
+                currentTime++;
+
+                if (currentTier1Process.getRemainingTime() <= 0) {
+                    currentTier1Process.setFinishTime(currentTime);
+                    MetricsCalculator.computeProcessMetrics(currentTier1Process);
+                    lastExecuted = currentTier1Process;
+                    currentTier1Process = null;
+                    currentQuantumUsed = 0;
+                    completed++;
+                } else if (shouldDemote) {
+                    demoteToTier2(currentTier1Process, currentTime);
+                    lastExecuted = currentTier1Process;
+                    currentTier1Process = null;
+                    currentQuantumUsed = 0;
+                }
+            } else {
+                logs.add(new TimeStepLog(
+                        currentTime,
+                        null,
+                        false,
+                        "",
+                        Collections.emptyList(),
+                        Collections.emptyList(),
+                        "CPU Idle"
+                ));
+                currentTime++;
             }
-
-            double avgWaiting = MetricsCalculator.calculateAverageWaitingTime(simulist);
-            double avgResponse = MetricsCalculator.calculateAverageResponseTime(simulist);
-            double avgTurnaround = MetricsCalculator.calculateAverageTurnaroundTime(simulist);
-            double cpuUtilization = MetricsCalculator.calculateCpuUtilization(busyTime, currentTime);
-
-            return new SimulationResult(
-                    getName(),
-                    quantum,
-                    contextSwitchTime,
-                    simulist,
-                    executionLog,
-                    avgWaiting,
-                    avgTurnaround,
-                    avgResponse,
-                    cpuUtilization,
-                    currentTime);
         }
 
-        return null;
+        logs.add(new TimeStepLog(
+                currentTime,
+                null,
+                false,
+                "",
+                Collections.emptyList(),
+                Collections.emptyList(),
+                "Tier 1: [Empty] | Tier 2: [Empty]"
+        ));
+
+        double awt = MetricsCalculator.calculateAverageWaitingTime(allProcesses);
+        double atat = MetricsCalculator.calculateAverageTurnaroundTime(allProcesses);
+        double art = MetricsCalculator.calculateAverageResponseTime(allProcesses);
+        double cpuUtil = MetricsCalculator.calculateCpuUtilization(busyTime, currentTime);
+
+        return new SimulationResult(
+                getName(),
+                quantum,
+                contextSwitchTime,
+                allProcesses,
+                logs,
+                awt,
+                atat,
+                art,
+                cpuUtil,
+                currentTime
+        );
     }
 
     public void handleTier1Arrival(Process process) {
-        if (process == null)
-            return;
         process.setCurrentTier(Process.Tier.TIER_1_RR);
         tier1Queue.add(process);
     }
 
-    public Process selectTier1Process() {
-        if (tier1Queue.isEmpty())
-            return null;
-        currentlyRunningInteractiveProcess = tier1Queue.poll();
-        tier1QuantumUsed = 0;
-        return currentlyRunningInteractiveProcess;
-    }
-
     public boolean executeTier1Step(Process process, int quantum) {
-        if (currentlyRunningInteractiveProcess == null)
+        process.setRemainingTime(process.getRemainingTime() - 1);
+        currentQuantumUsed++;
+        if (process.getRemainingTime() <= 0) {
+            currentQuantumUsed = 0;
             return false;
-
-        currentlyRunningInteractiveProcess.setRemainingTime(currentlyRunningInteractiveProcess.getRemainingTime() - 1);
-        tier1QuantumUsed++;
-
-        if (currentlyRunningInteractiveProcess.getRemainingTime() == 0 || tier1QuantumUsed >= quantum) {
-            currentlyRunningInteractiveProcess = null;
-            tier1QuantumUsed = 0;
+        }
+        if (currentQuantumUsed >= quantum) {
+            currentQuantumUsed = 0;
             return true;
-        } else {
-            return false;
         }
-
-    }
-
-    public List<String> getTier1Snapshot() {
-        List<String> snapshot = new ArrayList<>();
-        for (Process p : tier1Queue) {
-            snapshot.add(p.getId() + " (remaining: " + p.getRemainingTime()
-                    + ", Priority: " + p.getEffectivePriority() + ")");
-        }
-        return snapshot;
+        return false;
     }
 
     public void demoteToTier2(Process process, int currentTime) {
-        if (process == null)
-            return;
-        process.setCurrentTier(Tier.TIER_2_PRIORITY);
+        process.setCurrentTier(Process.Tier.TIER_2_PRIORITY);
         process.setTier2WaitStartTime(currentTime);
         tier2Queue.add(process);
     }
 
-    public Process selectTier2Process(int currentTime, int agingInterval) {
-        if (tier2Queue.isEmpty())
+    public Process selectTier2Process() {
+        if (currentlyRunningBatchProcess != null) {
+            return currentlyRunningBatchProcess;
+        }
+        if (tier2Queue.isEmpty()) {
             return null;
-        agingStrategy.applyAging(tier2Queue, currentTime, agingInterval);
+        }
+        tier2Queue.sort(agingStrategy.getTier2Comparator());
         currentlyRunningBatchProcess = tier2Queue.remove(0);
         return currentlyRunningBatchProcess;
     }
 
     public boolean executeTier2Step() {
-        if (currentlyRunningBatchProcess == null)
-            return false;
-        currentlyRunningBatchProcess.setRemainingTime(currentlyRunningBatchProcess.getRemainingTime() - 1);
-        if (currentlyRunningBatchProcess.getRemainingTime() == 0) {
-            currentlyRunningBatchProcess = null;
-            return true;
-        } else {
+        if (currentlyRunningBatchProcess == null) {
             return false;
         }
+        currentlyRunningBatchProcess.setRemainingTime(currentlyRunningBatchProcess.getRemainingTime() - 1);
+        if (currentlyRunningBatchProcess.getRemainingTime() <= 0) {
+            currentlyRunningBatchProcess = null;
+            return true;
+        }
+        return false;
+    }
+
+    private List<String> snapshotTier1(Process active) {
+        List<String> list = new ArrayList<>();
+        if (active != null) {
+            list.add(formatProcess(active));
+        }
+        for (Process p : tier1Queue) {
+            list.add(formatProcess(p));
+        }
+        return list;
+    }
+
+    private List<String> snapshotTier2(Process active) {
+        List<String> list = new ArrayList<>();
+        if (active != null) {
+            list.add(formatProcess(active));
+        }
+        for (Process p : tier2Queue) {
+            list.add(formatProcess(p));
+        }
+        return list;
+    }
+
+    private String formatProcess(Process p) {
+        return String.format("%s (remaining: %d, Priority: %d)",
+                p.getId(), p.getRemainingTime(), p.getEffectivePriority());
     }
 
     public ACSAgingStrategy getAgingStrategy() {
