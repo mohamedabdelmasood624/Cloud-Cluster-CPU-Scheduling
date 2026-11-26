@@ -4,6 +4,7 @@ import analytics.MetricsCalculator;
 import model.Process;
 import model.Scheduler;
 import model.SimulationResult;
+import model.Process.Tier;
 import model.TimeStepLog;
 
 import java.util.ArrayDeque;
@@ -11,9 +12,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Queue;
+import java.util.function.Consumer;
+
+import analytics.MetricsCalculator;
 
 public class AdaptiveContainerScheduler implements Scheduler {
-
     private final ACSAgingStrategy agingStrategy;
     private int agingInterval;
 
@@ -21,6 +24,16 @@ public class AdaptiveContainerScheduler implements Scheduler {
     private List<Process> tier2Queue = new ArrayList<>();
     private Process currentlyRunningBatchProcess = null;
     private int currentQuantumUsed = 0;
+    private Queue<Process> tier1Queue = new ArrayDeque<>();
+    private List<Process> tier2Queue = new ArrayList<>();
+    private Process currentlyRunningBatchProcess = null;
+    private Process currentlyRunningInteractiveProcess = null;
+    private int tier1QuantumUsed = 0;
+    private int agingInterval = 4;
+
+    public void setAgingInterval(int agingInterval) {
+        this.agingInterval = agingInterval;
+    }
 
     public AdaptiveContainerScheduler() {
         this(new ACSAgingStrategy(), 4);
@@ -333,6 +346,15 @@ public class AdaptiveContainerScheduler implements Scheduler {
 
     public List<Process> getTier2Queue() {
         return tier2Queue;
+    }
+
+    public List<String> getTier2Snapshot() {
+        List<String> snapshot = new ArrayList<>();
+        for (Process p : tier2Queue) {
+            snapshot.add(p.getId() + " (remaining: " + p.getRemainingTime()
+                    + ", Priority: " + p.getEffectivePriority() + ")");
+        }
+        return snapshot;
     }
 
     public Process getCurrentlyRunningBatchProcess() {

@@ -2,6 +2,7 @@ package schedulers;
 
 import model.Process;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
@@ -41,6 +42,7 @@ public class ACSAgingStrategy {
         return sb.toString();
     }
 
+    // Tier 2 priority comparator: lower number is higher priority, with FIFO tie-breaking
     public Comparator<Process> getTier2Comparator() {
         return Comparator.comparingInt(Process::getEffectivePriority)
                 .thenComparingInt(Process::getArrivalTime)
